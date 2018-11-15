@@ -23,16 +23,30 @@ class ScrollBox(tkinter.Listbox):
 # Get_albums method saves all albums of selected artist in albums_list and set it in albumLV
 def get_albums(event):
     lb = event.widget
-    index = lb.curselection()[0]
-    artist_name = lb.get(index),  # It's tuple so we don't have to think about this when we use database query
-    # Get artist ID
-    artist_id = conn.execute("SELECT artists._id FROM artists WHERE artists.name=?", artist_name).fetchone()
-    # Function fetchone also return tuple so we don't have to worry about next query
-    albums_list = []
-    for row in conn.execute("SELECT albums.name FROM albums WHERE albums.artist=? "
-                            "ORDER BY albums.name", artist_id).fetchall():
-        albums_list.append(row[0])
-    albumLV.set(albums_list)
+    if lb.curselection():
+        index = lb.curselection()[0]
+        artist_name = lb.get(index),  # It's tuple so we don't have to think about this when we use database query
+        # Get artist ID
+        artist_id = conn.execute("SELECT artists._id FROM artists WHERE artists.name=?", artist_name).fetchone()
+        # Function fetchone also return tuple so we don't have to worry about next query
+        albums_list = []
+        for row in conn.execute("SELECT albums.name FROM albums WHERE albums.artist=? "
+                                "ORDER BY albums.name", artist_id).fetchall():
+            albums_list.append(row[0])
+        albumLV.set(albums_list)
+        songsLV.set(("Choose an album.",))
+
+
+def get_songs(event):
+    lb = event.widget
+    if lb.curselection():
+        index = int(lb.curselection()[0])
+        album_name = lb.get(index),
+        album_id = conn.execute("SELECT albums._id FROM albums WHERE albums.name=?", album_name).fetchone()
+        songs_list = []
+        for row in conn.execute("SELECT songs.title FROM songs WHERE songs.album=? ORDER BY songs.track", album_id):
+            songs_list.append(row[0])
+        songsLV.set(tuple(songs_list))
 
 
 mainWindow = tkinter.Tk()
@@ -74,6 +88,9 @@ albumLV.set(("Choose an artist.",))
 albumsListbox = ScrollBox(mainWindow, listvariable=albumLV)
 albumsListbox.grid(row=1, column=1, sticky="nswe", padx=(30, 0))
 albumsListbox.config(border=2, relief="sunken")
+
+
+albumsListbox.bind("<<ListboxSelect>>", get_songs)
 
 # Songs Listbox+ Scrollbar
 songsLV = tkinter.Variable(mainWindow)
