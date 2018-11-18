@@ -1,8 +1,6 @@
 import tkinter
 import sqlite3
 
-conn = sqlite3.connect("music.sqlite")
-
 
 class ScrollBox(tkinter.Listbox):
 
@@ -20,86 +18,106 @@ class ScrollBox(tkinter.Listbox):
         self["yscrollcommand"] = self.scrollbar.set
 
 
-# Get_albums method saves all albums of selected artist in albums_list and set it in albumLV
-def get_albums(event):
-    lb = event.widget
-    if lb.curselection():
-        index = lb.curselection()[0]
-        artist_name = lb.get(index),  # It's tuple so we don't have to think about this when we use database query
-        # Get artist ID
-        artist_id = conn.execute("SELECT artists._id FROM artists WHERE artists.name=?", artist_name).fetchone()
-        # Function fetchone also return tuple so we don't have to worry about next query
-        albums_list = []
-        for row in conn.execute("SELECT albums.name FROM albums WHERE albums.artist=? "
-                                "ORDER BY albums.name", artist_id).fetchall():
-            albums_list.append(row[0])
-        albumLV.set(albums_list)
-        songsLV.set(("Choose an album.",))
+class DataListBox(ScrollBox):
+
+    def __init__(self, window, connection, table, field, sort_order=(), **kwargs):
+        super().__init__(window, **kwargs)
+        self.linked_box = None
+        self.link_field = None
+
+        self.cursor = connection.cursor()
+        self.table = table
+        self.field = field
+
+        self.bind("<<ListboxSelect>>", self.on_select)
+
+        self.sql_select = "SELECT " + self.field + ", _id " + "FROM " + table
+        if sort_order:
+            self.sql_sort = " ORDER BY " + ",".join(sort_order)
+        else:
+            self.sql_sort = " ORDER BY " + self.field
+
+    def clear(self):
+        self.delete(0, tkinter.END)
+
+    def link(self, widget, link_field):
+        self.linked_box = widget
+        widget.link_field = link_field
+
+    def requery(self, link_value=None):
+        if link_value and self.link_field:
+            sql = self.sql_select + " WHERE " + self.link_field + "=?" + self.sql_sort
+            self.cursor.execute(sql, (link_value,))
+
+        else:
+            self.cursor.execute(self.sql_select + self.sql_sort)
+
+        # clear listbox content before re-loading
+        self.clear()
+        for value in self.cursor:
+            self.insert(tkinter.END, value[0])
+
+        if self.linked_box:
+            self.linked_box.clear()
+
+    def on_select(self, event):
+        if self.linked_box:
+            if self.curselection():
+                index = self.curselection()[0]
+                name_element = self.get(index),  # It's tuple (query statement)
+                # Get artist ID
+                link_id = self.cursor.execute(self.sql_select + " WHERE " + self.field + " =?",
+                                              name_element).fetchone()[1]
+                self.linked_box.requery(link_id)
 
 
-def get_songs(event):
-    lb = event.widget
-    if lb.curselection():
-        index = int(lb.curselection()[0])
-        album_name = lb.get(index),
-        album_id = conn.execute("SELECT albums._id FROM albums WHERE albums.name=?", album_name).fetchone()
-        songs_list = []
-        for row in conn.execute("SELECT songs.title FROM songs WHERE songs.album=? ORDER BY songs.track", album_id):
-            songs_list.append(row[0])
-        songsLV.set(tuple(songs_list))
+if __name__ == "__main__":
+    conn = sqlite3.connect("music.sqlite")
 
+    mainWindow = tkinter.Tk()
+    mainWindow.geometry("1024x768")
+    mainWindow.title("Music DB Browser")
 
-mainWindow = tkinter.Tk()
-mainWindow.geometry("1024x768")
-mainWindow.title("Music DB Browser")
+    # Configure proportion between columns and rows
+    mainWindow.columnconfigure(0, weight=2)
+    mainWindow.columnconfigure(1, weight=2)
+    mainWindow.columnconfigure(2, weight=2)
+    mainWindow.columnconfigure(3, weight=1)  # spacer column on right
 
-# Configure proportion between columns and rows
-mainWindow.columnconfigure(0, weight=2)
-mainWindow.columnconfigure(1, weight=2)
-mainWindow.columnconfigure(2, weight=2)
-mainWindow.columnconfigure(3, weight=1)  # spacer column on right
+    mainWindow.rowconfigure(0, weight=1)
+    mainWindow.rowconfigure(1, weight=5)
+    mainWindow.rowconfigure(2, weight=5)
+    mainWindow.rowconfigure(3, weight=1)
 
-mainWindow.rowconfigure(0, weight=1)
-mainWindow.rowconfigure(1, weight=5)
-mainWindow.rowconfigure(2, weight=5)
-mainWindow.rowconfigure(3, weight=1)
+    # Labels with name of columns
+    artistLabel = tkinter.Label(mainWindow, text="Artist").grid(row=0, column=0)
+    albumsLabel = tkinter.Label(mainWindow, text="Albums").grid(row=0, column=1)
+    songsLabel = tkinter.Label(mainWindow, text="Songs").grid(row=0, column=2)
 
-# Labels with name of columns
-artistLabel = tkinter.Label(mainWindow, text="Artist").grid(row=0, column=0)
-albumsLabel = tkinter.Label(mainWindow, text="Albums").grid(row=0, column=1)
-songsLabel = tkinter.Label(mainWindow, text="Songs").grid(row=0, column=2)
+    # Artists Listbox + Scrollbar
+    artistListbox = DataListBox(mainWindow, conn, "artists", "artists.name")
+    artistListbox.grid(1, 0, rowspan=2, padx=(30, 0), sticky="nswe")
+    # padx=(left_side_distance, right_side_distance)
+    artistListbox.config(border=2, relief="sunken")
+    artistListbox.config(border=2, relief="sunken")
+    artistListbox.requery()  # Add artist list from database
 
-# Artists Listbox + Scrollbar
-artistListbox = ScrollBox(mainWindow)
-# padx=(left_side_distance, right_side_distance)
-artistListbox.grid(row=1, column=0, sticky='nswe', rowspan=2, padx=(30, 0))
-artistListbox.config(border=2, relief="sunken")
+    # Albums Listbox + Scrollbar
+    albumLV = tkinter.Variable(mainWindow)
+    albumLV.set(("Choose an artist.",))
+    albumsListbox = DataListBox(mainWindow, conn, "albums", "albums.name", ("albums.name",), listvariable=albumLV)
+    albumsListbox.grid(row=1, column=1, sticky="nswe", padx=(30, 0))
+    artistListbox.link(albumsListbox, "artist")
 
-# Add artist list from database
-for artist in conn.execute("SELECT artists.name FROM artists ORDER BY artists.name"):
-    artistListbox.insert(tkinter.END, artist[0])
+    # Songs Listbox+ Scrollbar
+    songsLV = tkinter.Variable(mainWindow)
+    songsLV.set(("Choose an album.",))
+    songsListbox = DataListBox(mainWindow, conn, "songs", "songs.title", ("songs.track", "songs.title"),
+                               listvariable=songsLV)
+    songsListbox.grid(row=1, column=2, sticky="nswe", padx=(30, 0))
+    songsListbox.config(border=2, relief="sunken")
+    albumsListbox.link(songsListbox, "album")
 
-# Select artist whose all albums should be displayed in albumsListbox
-artistListbox.bind("<<ListboxSelect>>", get_albums)
-
-# Albums Listbox + Scrollbar
-albumLV = tkinter.Variable(mainWindow)
-albumLV.set(("Choose an artist.",))
-albumsListbox = ScrollBox(mainWindow, listvariable=albumLV)
-albumsListbox.grid(row=1, column=1, sticky="nswe", padx=(30, 0))
-albumsListbox.config(border=2, relief="sunken")
-
-
-albumsListbox.bind("<<ListboxSelect>>", get_songs)
-
-# Songs Listbox+ Scrollbar
-songsLV = tkinter.Variable(mainWindow)
-songsLV.set(("Choose an album.",))
-songsListbox = ScrollBox(mainWindow, listvariable=songsLV)
-songsListbox.grid(row=1, column=2, sticky="nswe", padx=(30, 0))
-songsListbox.config(border=2, relief="sunken")
-
-mainWindow.mainloop()
-
-print("Closing database connection.")
-conn.close()
+    mainWindow.mainloop()
+    print("Closing database connection.")
+    conn.close()
