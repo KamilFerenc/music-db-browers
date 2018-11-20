@@ -3,11 +3,10 @@ import sqlite3
 
 
 class ScrollBox(tkinter.Listbox):
-
-    """
-    Class that inherits from tkinter.Listbox class. Allows to create Listbox and Scrollbar with __init__ method.
+    """Class that inherits from tkinter.Listbox class. Allows to create Listbox and Scrollbar with __init__ method.
     Contains also grid method which allows to pack both elements inside the window.
     """
+
     def __init__(self, window, **kwargs):
         super().__init__(window, **kwargs)
         self.scrollbar = tkinter.Scrollbar(window, orient=tkinter.VERTICAL, command=self.yview)
@@ -19,11 +18,31 @@ class ScrollBox(tkinter.Listbox):
 
 
 class DataListBox(ScrollBox):
+    """"Class allows to display data from database using the simple GUI.
+    If in the database are store connected tables, user can choose record and in the next GUI listBox will appearance
+    data linked with chosen record.
+
+        Attributes:
+            window(str): Main GUI window earlier configured.
+            connection(method): Connection build in function sqlite with database.
+            table(str): Name of the table stored in DB which will use to sql query.
+            field(str): Name of field from table which will use to sql query.
+            sort_order(tuple): Parameters according to which will by sort and display records.
+
+        Methods:
+            add_song: Used to add new song to the album's track list
+            clear(): Used to clear indicated listBox
+            link(): Used to link relationship between listBox
+            requery(): Used to display records in indicated listBox
+            on_select(): Used to find _id chosen element in the listBox and search matching records from connected
+            listBox. Then call the requery method and display matching records in the next listBox.
+        """
 
     def __init__(self, window, connection, table, field, sort_order=(), **kwargs):
         super().__init__(window, **kwargs)
         self.linked_box = None
         self.link_field = None
+        self.link_value = None
 
         self.cursor = connection.cursor()
         self.table = table
@@ -45,10 +64,10 @@ class DataListBox(ScrollBox):
         widget.link_field = link_field
 
     def requery(self, link_value=None):
+        self.link_value = link_value  # store the _id the master record
         if link_value and self.link_field:
             sql = self.sql_select + " WHERE " + self.link_field + "=?" + self.sql_sort
             self.cursor.execute(sql, (link_value,))
-
         else:
             self.cursor.execute(self.sql_select + self.sql_sort)
 
@@ -61,19 +80,24 @@ class DataListBox(ScrollBox):
             self.linked_box.clear()
 
     def on_select(self, event):
-        if self.linked_box:
-            if self.curselection():
-                index = self.curselection()[0]
-                name_element = self.get(index),  # It's tuple (query statement)
-                # Get artist ID
+        if self.linked_box and self.curselection():
+            index = self.curselection()[0]
+            name_element = self.get(index)  # It's tuple (query statement)
+            if self.link_value:
+                # get the ID from database row
+                # make sure we're getting the correct one, by including the link value if appropriate
+                link_id = self.cursor.execute(self.sql_select + " WHERE " + self.field + " =? AND "
+                                              + self.link_field + " =?", (name_element, self.link_value)).fetchone()[1]
+            # get artist or album ID
+            else:
                 link_id = self.cursor.execute(self.sql_select + " WHERE " + self.field + " =?",
-                                              name_element).fetchone()[1]
-                self.linked_box.requery(link_id)
+                                              (name_element,)).fetchone()[1]
+            self.linked_box.requery(link_id)
 
 
 if __name__ == "__main__":
     conn = sqlite3.connect("music.sqlite")
-
+    print(type(conn), conn)
     mainWindow = tkinter.Tk()
     mainWindow.geometry("1024x768")
     mainWindow.title("Music DB Browser")
@@ -103,21 +127,19 @@ if __name__ == "__main__":
     artistListbox.requery()  # Add artist list from database
 
     # Albums Listbox + Scrollbar
-    albumLV = tkinter.Variable(mainWindow)
-    albumLV.set(("Choose an artist.",))
-    albumsListbox = DataListBox(mainWindow, conn, "albums", "albums.name", ("albums.name",), listvariable=albumLV)
+    albumsListbox = DataListBox(mainWindow, conn, "albums", "albums.name", ("albums.name",))
     albumsListbox.grid(row=1, column=1, sticky="nswe", padx=(30, 0))
+    albumsListbox.requery()
     artistListbox.link(albumsListbox, "artist")
 
     # Songs Listbox+ Scrollbar
-    songsLV = tkinter.Variable(mainWindow)
-    songsLV.set(("Choose an album.",))
-    songsListbox = DataListBox(mainWindow, conn, "songs", "songs.title", ("songs.track", "songs.title"),
-                               listvariable=songsLV)
+    songsListbox = DataListBox(mainWindow, conn, "songs", "songs.title", ("songs.track", "songs.title"))
     songsListbox.grid(row=1, column=2, sticky="nswe", padx=(30, 0))
     songsListbox.config(border=2, relief="sunken")
+    songsListbox.requery()
     albumsListbox.link(songsListbox, "album")
 
     mainWindow.mainloop()
     print("Closing database connection.")
     conn.close()
+
